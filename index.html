@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Korean Lookup</title>
+<style>
+:root{--bg:#fff;--fg:#1d1d1f;--mute:#86868b;--line:#e5e5ea;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#000;--fg:#f5f5f7;--mute:#86868b;--line:#2c2c2e;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#000;--fg:#f5f5f7;--mute:#86868b;--line:#2c2c2e;color-scheme:dark}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;font-weight:300;-webkit-font-smoothing:antialiased}
+[hidden]{display:none!important}
+main{max-width:560px;margin:0 auto;padding:12vh 24px 80px}
+h1{font-size:34px;font-weight:200;letter-spacing:-.02em;margin:0 0 40px;text-align:center}
+form{display:flex;border-bottom:1px solid var(--line)}
+input,textarea{flex:1;min-width:0;border:0;background:transparent;color:var(--fg);font:inherit;padding:12px 0;outline:none}
+input{font-size:26px}textarea{font-size:22px;resize:none}
+input::placeholder,textarea::placeholder{color:var(--mute)}
+button{border:0;background:transparent;color:var(--fg);font:inherit;font-size:15px;cursor:pointer;padding:0 0 0 16px}
+button:disabled{color:var(--mute)}
+.tabs{display:flex;justify-content:center;gap:28px;margin:-16px 0 32px}
+.tab{padding:0;font-size:15px;color:var(--mute)}.tab.on{color:var(--fg)}
+.sec{padding:24px 0;border-bottom:1px solid var(--line)}
+.lbl{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin-bottom:8px}
+.big{font-size:30px;font-weight:200}
+.mute{color:var(--mute)}
+.ex{margin:0 0 18px}.ex:last-child{margin:0}
+.ex .ko{font-size:18px}.ex .ro,.ex .en{font-size:14px;color:var(--mute);margin-top:2px}
+.say{padding:0;font-size:13px;color:var(--mute);margin-left:12px}
+.hi{display:block;width:100%;text-align:left;padding:12px 0;border-bottom:1px solid var(--line);font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hh{display:flex;justify-content:space-between;align-items:baseline}
+.hh button{font-size:13px;color:var(--mute)}
+#out{margin-top:8px}
+#msg{margin-top:32px;text-align:center;color:var(--mute);font-size:15px}
+#hist{margin-top:40px}
+</style>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Korean">
+<meta name="theme-color" content="#ffffff">
+</head>
+<body>
+<main>
+<h1>Korean Lookup</h1>
+<div class="tabs"><button type="button" class="tab on" data-tab="lookup">Look up</button><button type="button" class="tab" data-tab="translate">Translate</button><button type="button" class="tab" data-tab="questions">Questions</button></div>
+<form id="f"><input id="q" placeholder="한국어" autocomplete="off" autocapitalize="off" spellcheck="false" lang="ko"><button id="go" type="submit">Look up</button></form>
+<form id="t" hidden><textarea id="tq" rows="3" placeholder="English, Korean, 中文…" autocomplete="off" spellcheck="false"></textarea><button id="tgo" type="submit">Translate</button></form>
+<form id="a" hidden><textarea id="aq" rows="3" placeholder="Ask about sounds, grammar, words…" autocomplete="off" spellcheck="false"></textarea><button id="ago" type="submit">Ask</button></form>
+<div id="lang" class="tabs" hidden style="margin:20px 0 0"><button type="button" class="tab on" data-lang="English">English</button><button type="button" class="tab" data-lang="Traditional Chinese (繁體中文)">繁體中文</button></div>
+<div id="msg"></div>
+<div id="out"></div>
+<div id="hist"></div>
+</main>
+<script src="shim.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const out=$("out"),msg=$("msg"),hist=$("hist");
+let sample=null,coll=null,ready=false,tab="lookup",target="English",items=[];
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const hash=s=>{let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))|0;return (h>>>0).toString(36)};
+
+function speak(t){try{const u=new SpeechSynthesisUtterance(t);u.lang="ko-KR";u.rate=.85;u.volume=1;const ks=speechSynthesis.getVoices().filter(v=>v.lang.replace("_","-").toLowerCase().startsWith("ko")&&!/injoon|\bmale\b/i.test(v.name));const v=ks.find(v=>/yuna|heami|sun-?hi|seoyeon|female|google/i.test(v.name))||ks[0];if(v)u.voice=v;speechSynthesis.cancel();speechSynthesis.speak(u)}catch(e){}}
+try{speechSynthesis.getVoices();speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices()}catch(e){}
+const bind=()=>out.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>speak(b.dataset.s));
+const say=t=>`<button class="say" data-s="${esc(t)}">Listen</button>`;
+const exRow=e=>`<div class="ex"><div class="ko">${esc(e.korean)}${say(e.korean)}</div><div class="ro">${esc(e.romanization)}</div><div class="en">${esc(e.english)}</div></div>`;
+
+const R={
+lookup(w,r){
+  out.innerHTML=`
+  <div class="sec"><div class="lbl">Word</div><div class="big">${esc(w)}${say(w)}</div><div class="mute" style="margin-top:6px">${esc(r.meaning)}</div></div>
+  <div class="sec"><div class="lbl">Romanization</div><div class="big">${esc(r.romanization)}</div></div>
+  <div class="sec"><div class="lbl">Pronunciation</div><div class="big">${esc(r.pronunciation_ipa_like)}</div><div class="mute" style="margin-top:6px">${esc(r.pronunciation_note)}</div></div>
+  ${r.rule_name?`<div class="sec"><div class="lbl">Why it sounds different</div><div class="big" style="font-size:22px">${esc(r.rule_name)}</div><div style="margin-top:8px;line-height:1.5">${esc(r.rule_explanation)}</div>${r.french_comparison?`<div class="mute" style="margin-top:12px;line-height:1.5">${esc(r.french_comparison)}</div>`:""}</div>`:""}
+  ${(r.example_words&&r.example_words.length)?`<div class="sec"><div class="lbl">Example words</div>${r.example_words.map(exRow).join("")}</div>`:""}
+  <div class="sec"><div class="lbl">Examples</div>${(r.examples||[]).map(exRow).join("")}</div>`;
+  bind();return true},
+translate(w,r){
+  const opts=(r.options||[]).map(o=>{const ko=!!o.romanization;return `<div class="ex"><div class="ko" style="font-size:20px">${esc(o.text)}${ko?say(o.text):""}</div>${ko?`<div class="ro">${esc(o.romanization)}</div>`:""}<div class="en">${esc(o.register)} · ${esc(o.usage)}</div></div>`}).join("");
+  out.innerHTML=`<div class="sec"><div class="lbl">Meaning</div><div>${esc(r.meaning)}</div></div><div class="sec"><div class="lbl">${esc(r.target_language)}</div>${opts}</div>`;
+  bind();return true},
+questions(w,r){
+  if(!r||!r.on_topic||!r.answer){out.innerHTML=`<div class="sec mute">I can only answer questions about language, such as Korean sounds, grammar and vocabulary.</div>`;return false}
+  out.innerHTML=`<div class="sec"><div class="lbl">Answer</div>${String(r.answer).split(/\n\s*\n/).map(p=>`<p style="line-height:1.6;margin:0 0 14px">${esc(p)}</p>`).join("")}</div>${(r.examples&&r.examples.length)?`<div class="sec"><div class="lbl">Examples</div>${r.examples.map(exRow).join("")}</div>`:""}`;
+  bind();return true}
+};
+
+const P={
+lookup:w=>`You are a Korean dictionary. For the Korean input "${w}", reply with ONLY a JSON object, no markdown, with keys: "meaning" (short English meaning; if the input is not Korean or unclear, say so briefly), "romanization" (Revised Romanization of the written form), "pronunciation_ipa_like" (romanization of how it is actually pronounced after sound changes such as liaison, nasalization, tensification), "pronunciation_note" (one short sentence explaining any sound change, and an easy English-like sound guide), "rule_name" (name of the Korean pronunciation rule that applies, such as liaison/resyllabification (연음), nasalization, tensification, palatalization, ㅎ weakening, or batchim neutralization; empty string if the word is pronounced as spelled), "rule_explanation" (2 to 3 plain sentences explaining why the sounds change and why the spelling does not show it, using this word as the example), "french_comparison" (one or two sentences comparing it to French liaison or enchaînement where a real parallel exists, noting honestly how the two differ; empty string if there is no useful parallel), "example_words" (only when the input is a single syllable or a single word, otherwise an empty array; 2 objects with "korean", "romanization", "english": for a single syllable, common everyday words that contain it; for a single word, closely related words, compounds or common word pairings), "examples" (array of exactly 3 objects with "korean", "romanization", "english", natural everyday sentences using the word).`,
+translate:w=>`The input may be in any language. If it is Korean, translate it into ${target}. If it is not Korean, translate it into Korean. Give several natural options, since the right choice depends on who is being spoken to and the situation. Reply with ONLY a JSON object, no markdown, with keys: "meaning" (one short sentence on what the input means, including any nuance or ambiguity), "target_language" (name of the output language), "options" (3 to 5 objects ordered from most formal to most casual, each with "text", "romanization" (Revised Romanization if the text is Korean, otherwise an empty string), "register" (e.g. formal polite, polite, casual, intimate, written), "usage" (short phrase on who you would say it to or when)). Write "meaning", "register" and "usage" in ${target}. Text: """${w}"""`,
+questions:w=>`You are a language tutor inside a Korean learning app. Answer ONLY questions about language: Korean first and foremost (pronunciation and sounds, writing, grammar, vocabulary, politeness levels, how words are used), plus comparisons with other languages such as English, Chinese or French when they help explain. If the question is not about language, reply with ONLY {"on_topic":false}. Otherwise reply with ONLY a JSON object, no markdown: {"on_topic":true,"answer":"...","examples":[{"korean":"...","romanization":"...","english":"..."}]}, where examples lists the 2 to 4 key Korean syllables or words used in the answer (an empty array if none). Keep the answer clear and under 200 words, in plain paragraphs separated by blank lines, give Korean examples with Revised Romanization, never invent facts, and say so briefly if you are unsure. Question: """${w}"""`
+};
+
+function renderHist(){
+  if(!ready){hist.innerHTML="";return}
+  if(!coll){hist.innerHTML=`<div class="mute" style="font-size:13px;text-align:center">Sign in to Claude to keep a history.</div>`;return}
+  const mine=items.filter(h=>h.tab===tab);
+  if(!mine.length){hist.innerHTML="";return}
+  hist.innerHTML=`<div class="hh"><div class="lbl">History</div><button id="clr" type="button">Clear</button></div>`+mine.map(h=>`<button type="button" class="hi" data-id="${esc(h.id)}">${esc(h.q)}</button>`).join("");
+  hist.querySelectorAll(".hi").forEach(b=>b.onclick=()=>{
+    const h=items.find(x=>x.id===b.dataset.id);if(!h)return;
+    try{const r=JSON.parse(h.r);msg.textContent="";
+      if(tab==="lookup")$("q").value=h.q;else if(tab==="translate")$("tq").value=h.q;else $("aq").value=h.q;
+      R[tab](h.q,r);window.scrollTo({top:0,behavior:"smooth"})}catch(e){}
+  });
+  $("clr").onclick=async()=>{
+    const del=items.filter(h=>h.tab===tab);
+    for(const h of del){try{await coll.doc(h.id).delete()}catch(e){}}
+    items=items.filter(h=>h.tab!==tab);renderHist();
+  };
+}
+async function save(q,r){
+  if(!coll)return;
+  const id=tab+"_"+hash(q+"|"+(tab==="translate"?target:""));
+  const d={tab,q,ts:Date.now(),r:JSON.stringify(r)};
+  try{await coll.doc(id).set(d);items=items.filter(h=>h.id!==id);items.unshift({id,...d});renderHist()}catch(e){}
+}
+async function run(q,btn,busy,verb){
+  if(!q||!sample)return;
+  btn.disabled=true;msg.textContent=busy;out.innerHTML="";
+  try{
+    const r=await sample.json(P[tab](q));
+    msg.textContent="";
+    if(R[tab](q,r))save(q,r);
+  }catch(e){
+    msg.textContent=(e&&e.code==="rate_limited")?"Too many requests. Please wait a moment.":"Couldn’t "+verb+". Please try again.";
+  }
+  btn.disabled=false;
+}
+$("f").addEventListener("submit",ev=>{ev.preventDefault();run($("q").value.trim(),$("go"),"Looking up…","look that up")});
+$("t").addEventListener("submit",ev=>{ev.preventDefault();run($("tq").value.trim(),$("tgo"),"Translating…","translate that")});
+$("a").addEventListener("submit",ev=>{ev.preventDefault();run($("aq").value.trim(),$("ago"),"Thinking…","answer that")});
+
+document.querySelectorAll("[data-lang]").forEach(b=>b.onclick=()=>{target=b.dataset.lang;document.querySelectorAll("[data-lang]").forEach(x=>x.classList.toggle("on",x===b))});
+document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{
+  tab=b.dataset.tab;
+  $("f").hidden=tab!=="lookup";$("t").hidden=tab!=="translate";$("a").hidden=tab!=="questions";$("lang").hidden=tab!=="translate";
+  document.querySelectorAll("[data-tab]").forEach(x=>x.classList.toggle("on",x===b));
+  out.innerHTML="";msg.textContent=sample?"":msg.textContent;renderHist();
+});
+
+(async()=>{
+  const use=n=>claude.use(n).catch(()=>null);
+  const [s,db,user]=await Promise.all([use("sample"),use("db"),use("user")]);
+  sample=s;
+  if(!s)msg.textContent="Lookups aren’t available in this view.";
+  try{
+    const uid=user?await user.id():null;
+    if(db&&uid){
+      coll=db.collection("data/users/"+uid);
+      const snap=await coll.orderBy("ts","desc").limit(150).get();
+      items=snap.docs.map(d=>({id:d.id,...d.data()})).filter(h=>h.tab&&h.q&&h.r);
+    }
+  }catch(e){}
+  ready=true;renderHist();
+})();
+</script>
+</body>
+</html>
